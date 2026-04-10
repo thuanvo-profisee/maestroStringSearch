@@ -21,6 +21,10 @@ This guide explains how to load this extension into a Chromium-based browser (Ch
 	- `c:\DevOps\ext\maestroStringsSeach\maestroStringsSearch`
 6. Confirm the extension appears in the extensions list.
 
+## Showcase
+
+<img src="./how-to-use.gif" width="400px" />
+
 ## Test the Extension
 
 1. Pin the extension from the browser toolbar (optional but useful).
