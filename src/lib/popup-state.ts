@@ -12,6 +12,8 @@ export type PopupState = {
   mode: SearchMode
   status: SearchStatus
   results: StringEntry[]
+  /** The loaded snapshot to search, or null to search the active tab. */
+  snapshotId: string | null
 }
 
 export const initialPopupState: PopupState = {
@@ -19,6 +21,7 @@ export const initialPopupState: PopupState = {
   mode: "value",
   status: { kind: "idle" },
   results: [],
+  snapshotId: null,
 }
 
 const STORAGE_KEY = "popupState"

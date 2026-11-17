@@ -3,6 +3,7 @@ import { DownloadIcon, FileWarningIcon, Loader2Icon, SearchIcon, SearchXIcon, Tr
 import { toast } from "sonner"
 
 import { ResultList } from "@/components/result-list"
+import { SnapshotBar } from "@/components/snapshot-bar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,8 +19,10 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   downloadJson,
+  findStrings,
   getMaestroStrings,
   searchMaestroStrings,
+  type MaestroStrings,
   type SearchMode,
   type StringEntry,
 } from "@/lib/maestro"
@@ -30,6 +33,13 @@ import {
   type PopupState,
   type SearchStatus,
 } from "@/lib/popup-state"
+import {
+  deleteSnapshot,
+  listSnapshots,
+  loadSnapshotStrings,
+  saveSnapshot,
+  type SnapshotInfo,
+} from "@/lib/snapshots"
 
 const MODE_LABELS: Record<SearchMode, string> = {
   value: "Value",
@@ -44,6 +54,10 @@ function toObject(entries: StringEntry[]) {
   return Object.fromEntries(entries.map(({ key, value }) => [key, value]))
 }
 
+function fileSlug(text: string) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "snapshot"
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
@@ -52,11 +66,18 @@ export function App() {
   const [state, setState] = useState<PopupState>(initialPopupState)
   const [loaded, setLoaded] = useState(false)
   const [searching, setSearching] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>([])
+  const snapshotCache = useRef(new Map<string, MaestroStrings>())
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    loadPopupState()
-      .then(setState)
+    Promise.all([loadPopupState(), listSnapshots()])
+      .then(([saved, list]) => {
+        const snapshotId = list.some((snapshot) => snapshot.id === saved.snapshotId) ? saved.snapshotId : null
+        setState({ ...saved, snapshotId })
+        setSnapshots(list)
+      })
       .finally(() => setLoaded(true))
   }, [])
 
@@ -72,7 +93,18 @@ export function App() {
 
   const update = (patch: Partial<PopupState>) => setState((current) => ({ ...current, ...patch }))
 
-  async function search() {
+  async function readSnapshot(id: string) {
+    let strings = snapshotCache.current.get(id)
+    if (!strings) {
+      const stored = await loadSnapshotStrings(id)
+      if (!stored) throw new Error("This snapshot is no longer saved")
+      strings = stored
+      snapshotCache.current.set(id, strings)
+    }
+    return strings
+  }
+
+  async function search(snapshotId = state.snapshotId) {
     const term = state.query.trim()
     if (!term) {
       update({ status: { kind: "empty-query" }, results: [] })
@@ -82,7 +114,9 @@ export function App() {
     const mode = state.mode
     setSearching(true)
     try {
-      const found = await searchMaestroStrings(term, mode)
+      const found = snapshotId
+        ? findStrings(term, mode, await readSnapshot(snapshotId))
+        : await searchMaestroStrings(term, mode)
       if (!found) {
         update({ status: { kind: "not-found" }, results: [] })
         return
@@ -97,12 +131,13 @@ export function App() {
 
   async function exportAll() {
     try {
-      const strings = await getMaestroStrings()
+      const snapshot = snapshots.find(({ id }) => id === state.snapshotId)
+      const strings = snapshot ? await readSnapshot(snapshot.id) : await getMaestroStrings()
       if (!strings) {
         toast.error("window.maestroStrings not found on this page")
         return
       }
-      downloadJson("maestro-strings.json", strings)
+      downloadJson(snapshot ? `maestro-strings-${fileSlug(snapshot.title)}.json` : "maestro-strings.json", strings)
       toast.success(`Exported ${Object.keys(strings).length} strings`)
     } catch (error) {
       toast.error(errorMessage(error))
@@ -112,6 +147,40 @@ export function App() {
   function exportResults() {
     downloadJson("maestro-strings-results.json", toObject(state.results))
     toast.success(`Exported ${state.results.length} results`)
+  }
+
+  /** Switches the search to a snapshot, or to the current tab when id is null. */
+  function selectSource(snapshotId: string | null) {
+    update({ snapshotId })
+    if (state.query.trim()) search(snapshotId)
+  }
+
+  async function saveCurrentTab() {
+    setSaving(true)
+    try {
+      const snapshot = await saveSnapshot()
+      if (!snapshot) {
+        toast.error("window.maestroStrings not found on this page")
+        return
+      }
+      setSnapshots((current) => [snapshot, ...current])
+      selectSource(snapshot.id)
+      toast.success(`Saved ${snapshot.count.toLocaleString()} strings. You can search them from any tab.`)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeSnapshot(id: string) {
+    try {
+      setSnapshots(await deleteSnapshot(id))
+      snapshotCache.current.delete(id)
+      if (state.snapshotId === id) selectSource(null)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
   }
 
   const { status, results } = state
@@ -142,6 +211,15 @@ export function App() {
             </DropdownMenuContent>
           </DropdownMenu>
         </header>
+
+        <SnapshotBar
+          snapshots={snapshots}
+          activeId={state.snapshotId}
+          saving={saving}
+          onSave={saveCurrentTab}
+          onLoad={selectSource}
+          onDelete={removeSnapshot}
+        />
 
         <form
           className="flex flex-col gap-2"
@@ -187,7 +265,7 @@ export function App() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-muted-foreground">Results</h2>
             <Badge variant="secondary">
-              {status.kind === "done" ? `${results.length} of ${status.total}` : "0 found"}
+              {status.kind === "done" ? `${results.length.toLocaleString()} of ${status.total.toLocaleString()}` : "0 found"}
             </Badge>
           </div>
           <Results status={status} results={results} />

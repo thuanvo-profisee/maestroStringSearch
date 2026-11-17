@@ -9,7 +9,7 @@ export function Highlight({ text, term, enabled = true }: { text: string; term: 
     <>
       {parts.map((part, index) =>
         index % 2 === 1 ? (
-          <mark key={index} className="rounded-sm bg-primary/15 px-0.5 font-medium text-foreground">
+          <mark key={index} className="rounded-[2px] bg-primary/15 font-medium text-foreground">
             {part}
           </mark>
         ) : (
