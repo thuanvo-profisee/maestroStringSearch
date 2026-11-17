@@ -25,6 +25,18 @@ npm run build
 
 The build writes the extension to the `dist` folder. To rebuild on each change, run `npm run dev`.
 
+## Install a Release
+
+1. Download `maestro-strings-search-<version>.zip` from the [Releases](https://github.com/thuanvo-profisee/maestroStringSearch/releases) page.
+2. Extract it to a folder.
+3. Load that folder as shown in the next section.
+
+## Release a New Version
+
+1. Change `version` in `public/manifest.json` and `package.json`.
+2. Commit and push a tag that matches, for example `git tag v2.0.1 && git push origin v2.0.1`.
+3. The **Release** GitHub Actions workflow builds the extension and publishes the zip.
+
 ## Load the Extension (Unpacked)
 
 1. Go to the extensions page:
@@ -33,7 +45,7 @@ The build writes the extension to the `dist` folder. To rebuild on each change, 
    - Brave: `brave://extensions/`
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select the `dist` folder in this project.
+4. Select the `dist` folder in this project, or the folder you extracted from a release.
 
 ## Showcase
 
